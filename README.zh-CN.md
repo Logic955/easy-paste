@@ -1,6 +1,9 @@
 # Easy Paste
 
-[English](./README.md)
+<p>
+  <a href="./README.md">English</a> |
+  <strong>简体中文</strong>
+</p>
 
 Easy Paste 是一个原生 macOS 剪贴板工具，目标是做出接近 Paste 的丝滑体验：复制后快速入列，面板快速呼出，选择后稳定粘贴。
 

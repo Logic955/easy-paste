@@ -1,6 +1,9 @@
 # Easy Paste
 
-[中文说明](./README.zh-CN.md)
+<p>
+  <strong>English</strong> |
+  <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
 Easy Paste is a native macOS clipboard manager focused on a fast, fluid Paste-like experience.
 
