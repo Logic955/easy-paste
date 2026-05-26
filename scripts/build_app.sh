@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 构建 Easy Paste beta 版 .app 包并打包成 zip。
+# 构建 Easy Paste beta 版 Universal .app 并生成 pkg 安装包。
 # 用法：./scripts/build_app.sh
-# 输出：dist/EasyPaste.app  +  dist/EasyPaste-beta.zip
+# 输出：dist/EasyPaste.app  +  dist/EasyPaste-installer.pkg
 
 set -euo pipefail
 
@@ -16,27 +16,36 @@ MIN_MACOS_VERSION="13.0"
 
 DIST="dist"
 APP_DIR="$DIST/$APP_NAME.app"
+PKG_PATH="$DIST/$APP_NAME-installer.pkg"
 
 echo "==> 清理旧产物"
-rm -rf "$APP_DIR" "$DIST/$APP_NAME-beta.zip"
+rm -rf "$APP_DIR" "$PKG_PATH" "$DIST/$APP_NAME-beta.zip"
 
-echo "==> Release 编译"
-swift build -c release --arch arm64 --arch x86_64 2>/dev/null || swift build -c release
+echo "==> Release Universal 编译（arm64 + x86_64）"
+if ! swift build -c release --arch arm64 --arch x86_64; then
+  echo "Universal 编译失败：需要同时产出 arm64 和 x86_64，已停止打包。" >&2
+  exit 1
+fi
 
-# 找到产物路径（universal 走 apple/ 子目录，单架构走 <arch>/release/）
+# 找到 universal 产物路径。
 BIN=""
 for cand in \
   ".build/apple/Products/Release/$APP_NAME" \
-  ".build/release/$APP_NAME" \
-  ".build/arm64-apple-macosx/release/$APP_NAME" \
-  ".build/x86_64-apple-macosx/release/$APP_NAME"; do
+  ".build/release/$APP_NAME"; do
   if [ -x "$cand" ]; then BIN="$cand"; break; fi
 done
 if [ -z "$BIN" ]; then
-  echo "找不到 release 二进制" >&2
+  echo "找不到 Universal release 二进制" >&2
   exit 1
 fi
 echo "==> 二进制：$BIN"
+
+ARCH_INFO="$(lipo -info "$BIN" 2>/dev/null || true)"
+echo "==> 架构：$ARCH_INFO"
+if [[ "$ARCH_INFO" != *"x86_64"* || "$ARCH_INFO" != *"arm64"* ]]; then
+  echo "Universal 架构校验失败：产物必须同时包含 x86_64 和 arm64。" >&2
+  exit 1
+fi
 
 echo "==> 构造 .app bundle"
 mkdir -p "$APP_DIR/Contents/MacOS"
@@ -103,16 +112,46 @@ else
   codesign --force --deep --sign - "$APP_DIR" 2>&1 | tail -3 || true
 fi
 
-echo "==> 打 zip"
-( cd "$DIST" && zip -qr "$APP_NAME-beta.zip" "$APP_NAME.app" )
+# codesign / local filesystem metadata may leave provenance xattrs. Strip them
+# before pkgbuild so the installer payload does not contain AppleDouble files.
+xattr -cr "$APP_DIR" 2>/dev/null || true
+codesign --verify --deep --strict "$APP_DIR"
+
+echo "==> 生成 pkg 安装包"
+INSTALLER_IDENTITY="${EASYPASTE_INSTALLER_IDENTITY:-}"
+if [ -z "$INSTALLER_IDENTITY" ]; then
+  INSTALLER_IDENTITY="$(security find-identity -v -p basic 2>/dev/null \
+    | sed -n 's/.*"\(Developer ID Installer:[^"]*\)".*/\1/p' \
+    | head -1)"
+fi
+
+if [ -n "$INSTALLER_IDENTITY" ]; then
+  echo "==> pkg 签名：$INSTALLER_IDENTITY"
+  COPYFILE_DISABLE=1 pkgbuild \
+    --component "$APP_DIR" \
+    --install-location "/Applications" \
+    --identifier "$BUNDLE_ID.pkg" \
+    --version "$VERSION" \
+    --sign "$INSTALLER_IDENTITY" \
+    "$PKG_PATH"
+else
+  echo "==> 未找到 Developer ID Installer 证书，生成未签名 pkg"
+  echo "    未签名 pkg 适合本机测试；公开分发需要 Developer ID Installer 签名和 notarization。"
+  COPYFILE_DISABLE=1 pkgbuild \
+    --component "$APP_DIR" \
+    --install-location "/Applications" \
+    --identifier "$BUNDLE_ID.pkg" \
+    --version "$VERSION" \
+    "$PKG_PATH"
+fi
 
 echo
 echo "完成 ✓"
 echo "  - $APP_DIR"
-echo "  - $DIST/$APP_NAME-beta.zip"
+echo "  - $PKG_PATH"
 echo
 echo "使用方法："
-echo "  1) open $DIST/  ，把 $APP_NAME.app 拖到 /Applications"
-echo "  2) 首次运行右键 → 打开（绕过 Gatekeeper 提示）"
+echo "  1) open $PKG_PATH  ，按安装器提示安装到 /Applications"
+echo "  2) 首次运行右键 → 打开（绕过 Gatekeeper 提示，如系统需要）"
 echo "  3) 系统设置 → 隐私与安全 → 辅助功能，给 $DISPLAY_NAME 打勾"
 echo "  4) ⌘⇧V 呼出面板"

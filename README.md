@@ -11,6 +11,7 @@ Easy Paste is a native macOS clipboard manager focused on a fast, fluid Paste-li
 
 - macOS 13.0 or later.
 - Xcode / Swift toolchain for source builds.
+- The packaged app is Universal and supports both Intel and Apple Silicon Macs.
 
 ## Features
 
@@ -41,7 +42,15 @@ Outputs:
 
 ```text
 dist/EasyPaste.app
-dist/EasyPaste-beta.zip
+dist/EasyPaste-installer.pkg
+```
+
+Install by opening `dist/EasyPaste-installer.pkg`.
+
+Verify the Universal binary:
+
+```bash
+lipo -info dist/EasyPaste.app/Contents/MacOS/EasyPaste
 ```
 
 ## Permission
