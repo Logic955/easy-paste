@@ -1,0 +1,1232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Easy Paste — UI Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* =========================================================================
+     原型说明：用浏览器模拟 Easy Paste 面板的形态与交互。
+     - 桌面背景 = 假装的屏幕
+     - 底部贴一个固定面板（不可拖动）
+     - 工具栏 / 卡片 / Pinboard tab / 格式化选择器 / 搜索展开 / 空态全部走通
+     - 所有交互都是纯 DOM 模拟，不连真实剪贴板
+     ========================================================================= */
+
+  :root {
+    --panel-bg: rgba(22, 22, 24, 0.78);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-radius: 22px;
+    --pill-bg: rgba(255, 255, 255, 0.10);
+    --pill-bg-active: rgba(255, 255, 255, 0.18);
+    --tool-bg: rgba(255, 255, 255, 0.08);
+    --tool-bg-hover: rgba(255, 255, 255, 0.14);
+    --tool-bg-active: rgba(255, 255, 255, 0.22);
+    --tool-fg: rgba(255, 255, 255, 0.86);
+    --text: rgba(255, 255, 255, 0.92);
+    --subtext: rgba(255, 255, 255, 0.62);
+    --muted: rgba(255, 255, 255, 0.42);
+    --card-radius: 14px;
+    --card-w: 230px;
+    --card-h: 248px;
+    --card-header-h: 112px;
+    --card-bg: rgba(255, 255, 255, 0.06);
+    --card-body-bg: rgba(20, 20, 22, 0.92);
+    --card-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+    --card-shadow-hover: 0 10px 26px rgba(0, 0, 0, 0.42);
+    --card-shadow-active: 0 14px 32px rgba(0, 0, 0, 0.55);
+
+    /* type accent colors */
+    --t-text: #2e74e8;
+    --t-image: #2fb8a4;
+    --t-url: #8e5cd6;
+    --t-json: #2cb562;
+    --t-sql: #e5618e;
+    --t-yaml: #4fb8c4;
+    --t-xml: #5658c7;
+    --t-md: #43c7a5;
+    --t-code: #b8754a;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 假桌面壁纸 */
+  body {
+    background:
+      radial-gradient(circle at 20% 20%, #4a3b6b 0%, transparent 40%),
+      radial-gradient(circle at 80% 30%, #2c5b6b 0%, transparent 45%),
+      radial-gradient(circle at 50% 80%, #3a2f55 0%, transparent 50%),
+      linear-gradient(135deg, #1a1428 0%, #0d2030 100%);
+  }
+
+  /* 模拟前台窗口（让面板有「叠在窗口上」的感觉） */
+  .fake-window {
+    position: absolute;
+    top: 40px;
+    left: 60px;
+    right: 60px;
+    bottom: 240px;
+    background: rgba(28, 28, 30, 0.74);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+  .fake-window-bar {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .fake-window-bar i {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .fake-window-bar i.r { background: #ff5f57; }
+  .fake-window-bar i.y { background: #febc2e; }
+  .fake-window-bar i.g { background: #28c840; }
+  .fake-window-bar span {
+    color: rgba(255, 255, 255, 0.52);
+    font-size: 12px;
+    margin-left: 12px;
+  }
+  .fake-window-body {
+    padding: 22px 26px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 13px;
+    line-height: 1.7;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  /* ========================= 面板本体 ========================= */
+  .panel {
+    position: fixed;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    width: min(1480px, calc(100vw - 48px));
+    height: 360px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(40px) saturate(140%);
+    -webkit-backdrop-filter: blur(40px) saturate(140%);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--panel-radius);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 22px 18px;
+    transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    cursor: default;
+  }
+  .panel.hidden {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+    pointer-events: none;
+  }
+
+  /* ----- 工具栏 ----- */
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 32px;
+    margin-bottom: 12px;
+  }
+  .toolbar-left { justify-self: start; display: flex; gap: 8px; }
+  .toolbar-center { justify-self: center; display: flex; align-items: center; gap: 8px; }
+  .toolbar-right { justify-self: end; display: flex; gap: 8px; }
+
+  .tool-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--tool-bg);
+    color: var(--tool-fg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 120ms ease;
+    border: none;
+    font-size: 13px;
+  }
+  .tool-btn:hover { background: var(--tool-bg-hover); }
+  .tool-btn.active { background: var(--tool-bg-active); }
+  .tool-btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+  .clipboard-pill {
+    height: 28px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--pill-bg);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.94);
+  }
+  .clipboard-pill svg { width: 13px; height: 13px; fill: currentColor; opacity: 0.92; }
+
+  /* ----- 搜索框（默认折叠） ----- */
+  .search-wrap {
+    height: 32px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    display: none;
+  }
+  .search-wrap.show { display: block; }
+  .search-input {
+    width: 100%;
+    height: 32px;
+    padding: 0 36px 0 32px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .search-wrap { position: relative; }
+  .search-wrap::before {
+    content: "";
+    position: absolute;
+    left: 10px; top: 8px;
+    width: 16px; height: 16px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='rgba(255,255,255,0.55)' d='M11.5 10.4 14 12.9l-1.1 1.1-2.5-2.5a5 5 0 1 1 1.1-1.1zM7 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'/></svg>") no-repeat center;
+    pointer-events: none;
+  }
+
+  /* ----- Pinboard tab 条 ----- */
+  .tabs {
+    display: none;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 2px 0;
+    overflow-x: auto;
+  }
+  .tabs.show { display: flex; }
+  .tab {
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 120ms ease, color 120ms ease;
+    user-select: none;
+  }
+  .tab:hover { background: rgba(255, 255, 255, 0.14); }
+  .tab.active {
+    background: rgba(255, 255, 255, 0.20);
+    color: white;
+  }
+  .tab.add { padding: 0 10px; }
+
+  /* ----- 卡片区 ----- */
+  .cards-scroll {
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin: 0 -22px;
+    padding: 4px 22px;
+  }
+  .cards {
+    display: flex;
+    gap: 14px;
+    height: 100%;
+  }
+
+  .card {
+    flex: 0 0 var(--card-w);
+    height: var(--card-h);
+    border-radius: var(--card-radius);
+    background: var(--card-body-bg);
+    box-shadow: var(--card-shadow);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    cursor: pointer;
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 140ms ease,
+      filter 140ms ease;
+    position: relative;
+  }
+  .card:hover {
+    box-shadow: var(--card-shadow-hover);
+    transform: translateY(-2px);
+  }
+  .card.selected {
+    box-shadow: var(--card-shadow-active);
+    transform: translateY(-4px);
+  }
+  .card.selected .card-header { filter: brightness(1.08) saturate(1.05); }
+  .card:active { transform: scale(0.985); }
+
+  .card-header {
+    height: var(--card-header-h);
+    padding: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    color: white;
+    position: relative;
+  }
+  .card-header .meta { display: flex; flex-direction: column; gap: 2px; }
+  .card-header .meta .kind {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+  }
+  .card-header .meta .time {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.78);
+  }
+  .card-header .badge {
+    width: 38px;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+  }
+  .card-header .pin {
+    position: absolute;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    color: #ffd84a;
+    font-size: 14px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+  }
+  .card.pinned .card-header .pin { opacity: 1; }
+
+  /* type-driven header colors */
+  .card[data-type="text"]     .card-header { background: var(--t-text); }
+  .card[data-type="text"]     .card-header .badge { color: var(--t-text); }
+  .card[data-type="image"]    .card-header { background: var(--t-image); }
+  .card[data-type="image"]    .card-header .badge { color: var(--t-image); }
+  .card[data-type="url"]      .card-header { background: var(--t-url); }
+  .card[data-type="url"]      .card-header .badge { color: var(--t-url); }
+  .card[data-type="json"]     .card-header { background: var(--t-json); }
+  .card[data-type="json"]     .card-header .badge { color: var(--t-json); }
+  .card[data-type="sql"]      .card-header { background: var(--t-sql); }
+  .card[data-type="sql"]      .card-header .badge { color: var(--t-sql); }
+  .card[data-type="yaml"]     .card-header { background: var(--t-yaml); }
+  .card[data-type="yaml"]     .card-header .badge { color: var(--t-yaml); }
+  .card[data-type="xml"]      .card-header { background: var(--t-xml); }
+  .card[data-type="xml"]      .card-header .badge { color: var(--t-xml); }
+  .card[data-type="markdown"] .card-header { background: var(--t-md); }
+  .card[data-type="markdown"] .card-header .badge { color: var(--t-md); }
+  .card[data-type="code"]     .card-header { background: var(--t-code); }
+  .card[data-type="code"]     .card-header .badge { color: var(--t-code); }
+
+  .card-body {
+    flex: 1;
+    padding: 12px 14px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12.5px;
+    line-height: 1.45;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+  .card-body.image-body {
+    padding: 0;
+    background: rgba(255, 255, 255, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-body.image-body .ph {
+    width: 86%;
+    height: 80%;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.04) 100%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.06) 0 8px, transparent 8px 16px);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 12px;
+  }
+
+  .card-footer {
+    height: 26px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.46);
+    font-size: 11px;
+    font-weight: 500;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  /* 空态 */
+  .empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--subtext);
+  }
+  .empty .t { font-size: 16px; font-weight: 700; color: white; }
+  .empty .h { margin-top: 6px; font-size: 13px; }
+
+  /* ========================= 格式化选择器浮层 ========================= */
+  .picker {
+    position: absolute;
+    width: 240px;
+    background: rgba(40, 40, 44, 0.94);
+    backdrop-filter: blur(30px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+    padding: 6px 0;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+    z-index: 100;
+  }
+  .picker-title {
+    padding: 4px 14px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .picker-row {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    align-items: center;
+    height: 28px;
+    padding: 0 14px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .picker-row .badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .picker-row .label {
+    margin-left: 8px;
+    font-size: 13px;
+  }
+  .picker-row .key {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .picker-row.active {
+    background: #2e74e8;
+  }
+  .picker-row.active .badge { background: rgba(255, 255, 255, 0.18); color: white; }
+  .picker-row.active .key { color: rgba(255, 255, 255, 0.78); }
+
+  /* ========================= 顶部 HUD（解释当前形态/快捷键） ========================= */
+  .hud {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 6px 12px;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 12px;
+    z-index: 50;
+    backdrop-filter: blur(20px);
+  }
+  .hud kbd {
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: white;
+  }
+  .hud .summon-btn {
+    background: #2e74e8;
+    color: white;
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 6px;
+  }
+
+  /* 状态浮层（底部居中显示一次性提示） */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(0, 0, 0, 0.78);
+    color: white;
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-size: 13px;
+    opacity: 0;
+    transition: all 200ms ease;
+    pointer-events: none;
+    z-index: 200;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* 上下文菜单（右键卡片 / tab） */
+  .ctx-menu {
+    position: fixed;
+    background: rgba(40, 40, 44, 0.94);
+    backdrop-filter: blur(28px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    padding: 6px 0;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    z-index: 300;
+    min-width: 180px;
+  }
+  .ctx-row {
+    padding: 7px 14px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .ctx-row:hover { background: rgba(255, 255, 255, 0.10); }
+  .ctx-row.danger { color: #ff7171; }
+  .ctx-sep { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 4px 0; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- 顶部 HUD：教程/快捷键提示 -->
+<div class="hud" id="hud">
+  <span>原型预览：</span>
+  <kbd>⌘⇧V</kbd> 呼出/收起
+  <kbd>← →</kbd> 选择
+  <kbd>↩</kbd> 粘贴
+  <kbd>⇧↩</kbd> 纯文本
+  <kbd>⌘⇧↩</kbd> 选格式
+  <kbd>⌘1-9</kbd> 快速粘贴
+  <kbd>/</kbd> 搜索
+  <kbd>Space</kbd> 收藏
+  <kbd>⇧⌘N</kbd> 新建 Pinboard
+  <button class="summon-btn" id="summonBtn">呼出</button>
+</div>
+
+<!-- 假桌面前台窗口 -->
+<div class="fake-window">
+  <div class="fake-window-bar">
+    <i class="r"></i><i class="y"></i><i class="g"></i>
+    <span>Code — easy-paste — main.swift</span>
+  </div>
+  <div class="fake-window-body">
+    // 这是一个假装的前台窗口。<br/>
+    // 想象你正在写代码，按 ⌘⇧V 把 Easy Paste 呼起来挑一条剪贴板内容。<br/>
+    // 选中卡片后回车，面板会关闭并把内容「粘贴」到这里（原型用 toast 提示）。<br/>
+    <br/>
+    let panel = PanelController.shared<br/>
+    panel.show(targetApplication: nil)<br/>
+  </div>
+</div>
+
+<!-- 主面板 -->
+<div class="panel" id="panel">
+
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <button class="tool-btn" id="searchToggle" title="搜索 (⌘F or /)">
+        <svg viewBox="0 0 16 16"><path d="M11.5 10.4 14 12.9l-1.1 1.1-2.5-2.5a5 5 0 1 1 1.1-1.1zM7 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-center">
+      <div class="clipboard-pill" id="clipboardPill">
+        <svg viewBox="0 0 16 16"><path d="M5 1h6a1 1 0 0 1 1 1v1h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h1V2a1 1 0 0 1 1-1zm6 1H5v2h6V2zM3 5v9h10V5h-1v.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5V5H3z"/></svg>
+        <span id="pillTitle">Clipboard</span>
+      </div>
+      <button class="tool-btn" id="addBtn" title="新建 Pinboard (⇧⌘N)">
+        <svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>
+      </button>
+    </div>
+    <div class="toolbar-right">
+      <button class="tool-btn" id="pauseBtn" title="暂停/继续记录 (⌘T)">
+        <svg viewBox="0 0 16 16" id="pauseIcon"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
+      </button>
+      <button class="tool-btn" id="moreBtn" title="更多">
+        <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 搜索框（默认折叠） -->
+  <div class="search-wrap" id="searchWrap">
+    <input class="search-input" id="searchInput" placeholder="搜索内容、type:json、app:Safari、pinned、today" />
+  </div>
+
+  <!-- Pinboard tab 条（仅当用户至少创建过一个 board 才显示） -->
+  <div class="tabs" id="tabs"></div>
+
+  <!-- 卡片区 -->
+  <div class="cards-scroll" id="cardsScroll">
+    <div class="cards" id="cards"></div>
+  </div>
+</div>
+
+<!-- toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========================== Mock 数据 ========================== */
+const MOCK_ITEMS = [
+  { id: 1, type: "image", time: "5 hours ago", title: "screenshot", body: { kind: "image", w: 918, h: 669 }, app: "Code", chars: null, pinned: false, boardIds: [] },
+  { id: 2, type: "image", time: "6 hours ago", title: "screenshot", body: { kind: "image", w: 2069, h: 521 }, app: "Safari", chars: null, pinned: false, boardIds: [] },
+  { id: 3, type: "text",  time: "6 hours ago", title: "swift run", body: { kind: "text", text: "swift run EasyPaste" }, app: "Terminal", chars: 19, pinned: false, boardIds: [] },
+  { id: 4, type: "text",  time: "6 hours ago", title: "1954", body: { kind: "text", text: "1954" }, app: "Calculator", chars: 4, pinned: false, boardIds: [] },
+  { id: 5, type: "text",  time: "6 hours ago", title: "Cortex", body: { kind: "text", text: "Cortex" }, app: "WeChat", chars: 6, pinned: false, boardIds: [] },
+  { id: 6, type: "text",  time: "6 hours ago", title: "Stash", body: { kind: "text", text: "Stash" }, app: "Notes", chars: 5, pinned: true, boardIds: [] },
+  { id: 7, type: "text",  time: "7 hours ago", title: "需求描述",
+    body: { kind: "text", text: "/goal 在 easy-paste 里, 我希望开发一个类似 paste 的 mac 软件, 主要是希望支持剪切板、剪切板支持各种搜索、快捷的调出、可以格式化粘贴, 支持 json、xml、markdown 等之类, 如果不知道 paste 长什么样可以先去调研" },
+    app: "Cursor", chars: 121, pinned: false, boardIds: [] },
+  { id: 8, type: "json",  time: "1 day ago",   title: "config.json",
+    body: { kind: "text", text: '{\n  "name": "Easy Paste",\n  "version": "1.0",\n  "features": ["search", "format"]\n}' },
+    app: "Code", chars: 78, pinned: false, boardIds: [] },
+  { id: 9, type: "sql",   time: "1 day ago",   title: "users query",
+    body: { kind: "text", text: "SELECT id, name, email FROM users WHERE active = 1 AND created_at > '2024-01-01' ORDER BY id DESC LIMIT 50" },
+    app: "TablePlus", chars: 105, pinned: false, boardIds: [] },
+  { id: 10, type: "yaml", time: "2 days ago",  title: "docker-compose",
+    body: { kind: "text", text: "services:\n  web:\n    image: nginx:alpine\n    ports:\n      - 8080:80" },
+    app: "Code", chars: 64, pinned: false, boardIds: [] },
+  { id: 11, type: "url",  time: "2 days ago",  title: "Paste app",
+    body: { kind: "text", text: "https://pasteapp.io/help/keyboard-shortcuts" },
+    app: "Safari", chars: 43, pinned: false, boardIds: [] },
+  { id: 12, type: "markdown", time: "3 days ago", title: "README.md",
+    body: { kind: "text", text: "# Easy Paste\n\n剪贴板管理器，目标对齐 Paste。\n\n- 搜索\n- 格式化粘贴\n- Pinboards" },
+    app: "Code", chars: 52, pinned: false, boardIds: [] }
+];
+
+const TYPE_LABEL = {
+  text: "Text", image: "Image", url: "URL", json: "JSON",
+  sql: "SQL", yaml: "YAML", xml: "XML", markdown: "Markdown", code: "Code"
+};
+const TYPE_GLYPH = {
+  text: "T", image: "▣", url: "↗", json: "{}",
+  sql: "S", yaml: "≡", xml: "<>", markdown: "M", code: "C"
+};
+
+/* ========================== 状态 ========================== */
+const state = {
+  items: structuredClone(MOCK_ITEMS),
+  pinboards: [],            // {id, name}
+  activeBoard: "all",       // "all" | "pinned" | board id
+  selectedId: null,
+  search: "",
+  searchOpen: false,
+  paused: false,
+  panelVisible: true,
+  picker: null              // {transforms, index}
+};
+
+/* ========================== Util ========================== */
+function $(sel) { return document.querySelector(sel); }
+function el(tag, attrs = {}, children = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k === "style") e.style.cssText = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const c of [].concat(children)) {
+    if (c == null) continue;
+    e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  }
+  return e;
+}
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.classList.remove("show"), 1400);
+}
+
+/* ========================== 过滤 / 排序 ========================== */
+function visibleItems() {
+  let list = state.items.slice();
+
+  if (state.activeBoard === "pinned") list = list.filter(x => x.pinned);
+  else if (state.activeBoard !== "all") list = list.filter(x => x.boardIds.includes(state.activeBoard));
+
+  const q = state.search.trim().toLowerCase();
+  if (q) {
+    list = list.filter(item => {
+      const text = item.body.text || "";
+      return [item.title, text, item.app, item.type].join(" ").toLowerCase().includes(q);
+    });
+  }
+
+  // pinned 在前，其余按 id desc（即最新在前 — mock 里 id 单调）
+  list.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return b.id - a.id;
+  });
+  return list;
+}
+
+/* ========================== 渲染 ========================== */
+function render() {
+  renderTabs();
+  renderCards();
+  renderPill();
+  renderPauseIcon();
+}
+
+function renderPill() {
+  const t = state.activeBoard === "all" ? "Clipboard"
+    : state.activeBoard === "pinned" ? "Pinned"
+    : (state.pinboards.find(p => p.id === state.activeBoard)?.name || "Pinboard");
+  $("#pillTitle").textContent = t;
+}
+
+function renderPauseIcon() {
+  const svg = $("#pauseIcon");
+  svg.innerHTML = state.paused
+    ? '<path d="M4 3l9 5-9 5V3z"/>'
+    : '<rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/>';
+}
+
+function renderTabs() {
+  const tabs = $("#tabs");
+  tabs.innerHTML = "";
+  if (state.pinboards.length === 0) {
+    tabs.classList.remove("show");
+    return;
+  }
+  tabs.classList.add("show");
+
+  const builtins = [
+    { id: "all", name: "All" },
+    { id: "pinned", name: "Pinned" }
+  ];
+  for (const b of [...builtins, ...state.pinboards]) {
+    const isBuiltin = b.id === "all" || b.id === "pinned";
+    const tab = el("div", {
+      class: "tab" + (state.activeBoard === b.id ? " active" : ""),
+      onclick: () => { state.activeBoard = b.id; render(); },
+      oncontextmenu: (e) => {
+        if (isBuiltin) return;
+        e.preventDefault();
+        showBoardCtx(b, e.clientX, e.clientY);
+      }
+    }, b.name);
+    tabs.appendChild(tab);
+  }
+
+  const add = el("div", {
+    class: "tab add",
+    onclick: () => promptCreatePinboard()
+  }, "+");
+  tabs.appendChild(add);
+}
+
+function renderCards() {
+  const cards = $("#cards");
+  cards.innerHTML = "";
+  const list = visibleItems();
+
+  if (list.length === 0) {
+    const empty = el("div", { class: "empty" }, [
+      el("div", { class: "t" }, "暂无剪贴板内容"),
+      el("div", { class: "h" }, state.search
+        ? "没有匹配的内容"
+        : (state.activeBoard !== "all" ? "把卡片右键 → 加入此 Pinboard"
+                                       : "复制文本、JSON、SQL、YAML、Markdown 或图片后会自动出现在这里"))
+    ]);
+    cards.appendChild(empty);
+    return;
+  }
+
+  if (!list.find(x => x.id === state.selectedId)) state.selectedId = list[0].id;
+
+  for (const item of list) {
+    cards.appendChild(renderCard(item));
+  }
+}
+
+function renderCard(item) {
+  const card = el("div", {
+    class: "card" + (state.selectedId === item.id ? " selected" : "") + (item.pinned ? " pinned" : ""),
+    "data-type": item.type,
+    "data-id": item.id,
+    onclick: () => selectCard(item.id),
+    ondblclick: () => { selectCard(item.id); doPaste("original"); },
+    oncontextmenu: (e) => { e.preventDefault(); selectCard(item.id); showItemCtx(item, e.clientX, e.clientY); }
+  });
+
+  const header = el("div", { class: "card-header" }, [
+    el("div", { class: "pin" }, "★"),
+    el("div", { class: "meta" }, [
+      el("div", { class: "kind" }, TYPE_LABEL[item.type] || "Text"),
+      el("div", { class: "time" }, item.time)
+    ]),
+    el("div", { class: "badge" }, TYPE_GLYPH[item.type] || "T")
+  ]);
+  card.appendChild(header);
+
+  const isImage = item.body.kind === "image";
+  if (isImage) {
+    const body = el("div", { class: "card-body image-body" }, [
+      el("div", { class: "ph" }, `${item.body.w} × ${item.body.h}`)
+    ]);
+    card.appendChild(body);
+  } else {
+    const body = el("div", { class: "card-body" }, item.body.text);
+    card.appendChild(body);
+  }
+
+  const footerText = isImage
+    ? `${item.body.w} × ${item.body.h} · ${item.app}`
+    : `${item.chars} characters · ${item.app}`;
+  card.appendChild(el("div", { class: "card-footer" }, footerText));
+
+  return card;
+}
+
+/* ========================== 选中 / 滚动 ========================== */
+function selectCard(id) {
+  state.selectedId = id;
+  document.querySelectorAll(".card").forEach(c =>
+    c.classList.toggle("selected", Number(c.dataset.id) === id));
+  scrollSelectedIntoView();
+}
+
+function scrollSelectedIntoView() {
+  const card = document.querySelector(`.card[data-id="${state.selectedId}"]`);
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+}
+
+function moveSelection(delta) {
+  const list = visibleItems();
+  if (list.length === 0) return;
+  const idx = list.findIndex(x => x.id === state.selectedId);
+  const next = Math.max(0, Math.min(list.length - 1, (idx === -1 ? 0 : idx) + delta));
+  selectCard(list[next].id);
+}
+
+/* ========================== 操作 ========================== */
+function doPaste(transform) {
+  const item = state.items.find(x => x.id === state.selectedId);
+  if (!item) return;
+  hidePanel();
+  const label = transform === "original" ? "原始内容"
+              : transform === "plain" ? "纯文本"
+              : `格式化 ${transform.toUpperCase()}`;
+  toast(`已粘贴：${item.title}（${label}）`);
+}
+
+function quickPaste(n, plain) {
+  const list = visibleItems();
+  if (n - 1 >= list.length) return;
+  selectCard(list[n - 1].id);
+  doPaste(plain ? "plain" : "original");
+}
+
+function togglePinned() {
+  const item = state.items.find(x => x.id === state.selectedId);
+  if (!item) return;
+  item.pinned = !item.pinned;
+  toast(item.pinned ? "已收藏" : "取消收藏");
+  render();
+}
+
+function deleteSelected() {
+  const idx = state.items.findIndex(x => x.id === state.selectedId);
+  if (idx === -1) return;
+  state.items.splice(idx, 1);
+  toast("已删除");
+  render();
+}
+
+function copySelected(transform) {
+  toast(transform === "plain" ? "已复制为纯文本" : "已复制到剪贴板");
+}
+
+function togglePause() {
+  state.paused = !state.paused;
+  toast(state.paused ? "已暂停记录" : "继续记录剪贴板");
+  render();
+}
+
+/* ========================== Pinboards ========================== */
+function promptCreatePinboard() {
+  const name = prompt("Pinboard 名称？", "Pinboard " + (state.pinboards.length + 1));
+  if (!name) return;
+  const id = "pb_" + Date.now();
+  state.pinboards.push({ id, name: name.trim() });
+  state.activeBoard = id;
+  render();
+}
+
+function renameBoard(board) {
+  const name = prompt("重命名 Pinboard", board.name);
+  if (name && name.trim()) {
+    board.name = name.trim();
+    render();
+  }
+}
+
+function deleteBoard(board) {
+  if (!confirm(`删除 Pinboard "${board.name}"？卡片不会被删除。`)) return;
+  state.pinboards = state.pinboards.filter(p => p.id !== board.id);
+  state.items.forEach(it => { it.boardIds = it.boardIds.filter(i => i !== board.id); });
+  if (state.activeBoard === board.id) state.activeBoard = "all";
+  render();
+}
+
+function cycleBoard(delta) {
+  if (state.pinboards.length === 0) return;
+  const order = ["all", "pinned", ...state.pinboards.map(p => p.id)];
+  const idx = order.indexOf(state.activeBoard);
+  const next = (idx + delta + order.length) % order.length;
+  state.activeBoard = order[next];
+  render();
+}
+
+/* ========================== 搜索 ========================== */
+function openSearch(prefix) {
+  state.searchOpen = true;
+  $("#searchWrap").classList.add("show");
+  $("#searchToggle").classList.add("active");
+  const input = $("#searchInput");
+  if (prefix !== undefined && prefix !== null) input.value = state.search = prefix;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+  render();
+}
+function closeSearch(clear) {
+  if (clear) { state.search = ""; $("#searchInput").value = ""; }
+  state.searchOpen = false;
+  $("#searchWrap").classList.remove("show");
+  $("#searchToggle").classList.remove("active");
+  $("#searchInput").blur();
+  render();
+}
+$("#searchInput").addEventListener("input", (e) => { state.search = e.target.value; render(); });
+$("#searchToggle").addEventListener("click", () => state.searchOpen ? closeSearch(false) : openSearch());
+
+/* ========================== Format Picker ========================== */
+function candidateTransforms(item) {
+  const t = item.type;
+  const result = ["original"];
+  if (item.body.kind === "image") return [];
+  if (t === "json") result.push("json");
+  if (t === "xml") result.push("xml");
+  if (t === "yaml") result.push("yaml");
+  if (t === "sql") result.push("sql");
+  if (t === "markdown") result.push("markdown");
+  result.push("plain");
+  return [...new Set(result)];
+}
+
+const TRANSFORM_LABEL = {
+  original: "原始内容",
+  plain: "纯文本",
+  json: "格式化 JSON",
+  xml: "格式化 XML",
+  yaml: "整理 YAML",
+  sql: "格式化 SQL",
+  markdown: "整理 Markdown"
+};
+const TRANSFORM_BADGE = {
+  original: "≡", plain: "T", json: "{}", xml: "<>", yaml: "yml", sql: "sql", markdown: "md"
+};
+
+function openPicker() {
+  const item = state.items.find(x => x.id === state.selectedId);
+  if (!item) return;
+  const transforms = candidateTransforms(item);
+  if (transforms.length === 0) { toast("图片不支持格式化粘贴"); return; }
+
+  closePicker();
+
+  const picker = el("div", { class: "picker" }, [
+    el("div", { class: "picker-title" }, "格式化粘贴"),
+    ...transforms.map((t, i) => el("div", {
+      class: "picker-row" + (i === 0 ? " active" : ""),
+      "data-i": i,
+      "data-t": t,
+      onmouseenter: () => setPickerIndex(i),
+      onclick: () => commitPicker()
+    }, [
+      el("div", { class: "badge" }, TRANSFORM_BADGE[t]),
+      el("div", { class: "label" }, TRANSFORM_LABEL[t]),
+      el("div", { class: "key" }, String(i + 1))
+    ]))
+  ]);
+
+  const card = document.querySelector(`.card[data-id="${state.selectedId}"]`);
+  if (card) {
+    const r = card.getBoundingClientRect();
+    picker.style.left = Math.max(20, r.left + r.width / 2 - 120) + "px";
+    picker.style.top = (r.top - 12 - (40 + transforms.length * 28)) + "px";
+  } else {
+    picker.style.left = "50%";
+    picker.style.top = "40%";
+    picker.style.transform = "translate(-50%, -50%)";
+  }
+  document.body.appendChild(picker);
+  state.picker = { transforms, index: 0, el: picker };
+}
+
+function setPickerIndex(i) {
+  if (!state.picker) return;
+  state.picker.index = i;
+  state.picker.el.querySelectorAll(".picker-row").forEach((r, j) =>
+    r.classList.toggle("active", j === i));
+}
+function movePicker(delta) {
+  if (!state.picker) return;
+  const n = state.picker.transforms.length;
+  setPickerIndex((state.picker.index + delta + n) % n);
+}
+function commitPicker() {
+  if (!state.picker) return;
+  const t = state.picker.transforms[state.picker.index];
+  closePicker();
+  doPaste(t);
+}
+function closePicker() {
+  if (state.picker) {
+    state.picker.el.remove();
+    state.picker = null;
+  }
+}
+
+/* ========================== Context Menus ========================== */
+let activeCtx = null;
+function closeCtx() { if (activeCtx) { activeCtx.remove(); activeCtx = null; } }
+
+function showItemCtx(item, x, y) {
+  closeCtx();
+  const m = el("div", { class: "ctx-menu", style: `left:${x}px; top:${y}px;` }, [
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); togglePinned(); } }, item.pinned ? "取消收藏" : "收藏"),
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); copySelected("original"); } }, "复制"),
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); copySelected("plain"); } }, "复制为纯文本"),
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); openPicker(); } }, "格式化粘贴…"),
+    el("div", { class: "ctx-sep" }),
+    state.pinboards.length ? el("div", { class: "ctx-row", style: "color: var(--subtext);" }, "Pinboards：") : null,
+    ...state.pinboards.map(b => el("div", {
+      class: "ctx-row",
+      onclick: () => {
+        closeCtx();
+        const idx = item.boardIds.indexOf(b.id);
+        if (idx === -1) item.boardIds.push(b.id); else item.boardIds.splice(idx, 1);
+        render();
+      }
+    }, (item.boardIds.includes(b.id) ? "✓ " : "  ") + b.name)),
+    el("div", { class: "ctx-sep" }),
+    el("div", { class: "ctx-row danger", onclick: () => { closeCtx(); deleteSelected(); } }, "删除")
+  ]);
+  document.body.appendChild(m);
+  activeCtx = m;
+}
+
+function showBoardCtx(board, x, y) {
+  closeCtx();
+  const m = el("div", { class: "ctx-menu", style: `left:${x}px; top:${y}px;` }, [
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); renameBoard(board); } }, "重命名…"),
+    el("div", { class: "ctx-row danger", onclick: () => { closeCtx(); deleteBoard(board); } }, "删除 Pinboard")
+  ]);
+  document.body.appendChild(m);
+  activeCtx = m;
+}
+
+document.addEventListener("click", (e) => {
+  if (activeCtx && !activeCtx.contains(e.target)) closeCtx();
+  if (state.picker && !state.picker.el.contains(e.target)) closePicker();
+});
+
+/* ========================== More 菜单 ========================== */
+$("#moreBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  closeCtx();
+  const r = e.currentTarget.getBoundingClientRect();
+  const m = el("div", { class: "ctx-menu", style: `left:${r.left - 140}px; top:${r.bottom + 6}px;` }, [
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); promptCreatePinboard(); } }, "新建 Pinboard…"),
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); openPicker(); } }, "格式化粘贴…"),
+    el("div", { class: "ctx-sep" }),
+    el("div", { class: "ctx-row", onclick: () => { closeCtx(); state.items = state.items.filter(x => x.pinned || x.boardIds.length); render(); toast("已清空未收藏"); } }, "清空未收藏"),
+    el("div", { class: "ctx-row danger", onclick: () => { closeCtx(); toast("（原型不会真的退出）"); } }, "退出 Easy Paste")
+  ]);
+  document.body.appendChild(m);
+  activeCtx = m;
+});
+
+$("#addBtn").addEventListener("click", () => promptCreatePinboard());
+$("#pauseBtn").addEventListener("click", () => togglePause());
+
+/* ========================== 面板 显示/隐藏 ========================== */
+function showPanel() {
+  state.panelVisible = true;
+  $("#panel").classList.remove("hidden");
+}
+function hidePanel() {
+  state.panelVisible = false;
+  closePicker();
+  closeCtx();
+  closeSearch(false);
+  $("#panel").classList.add("hidden");
+}
+function togglePanel() { state.panelVisible ? hidePanel() : showPanel(); }
+$("#summonBtn").addEventListener("click", () => togglePanel());
+
+/* ========================== 键盘 ========================== */
+window.addEventListener("keydown", (e) => {
+  // 全局：⌘⇧V 呼出
+  const isCmdShiftV = (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "v";
+  if (isCmdShiftV) { e.preventDefault(); togglePanel(); return; }
+
+  if (!state.panelVisible) return;
+
+  // Format picker 优先
+  if (state.picker) {
+    if (e.key === "Escape") { e.preventDefault(); closePicker(); return; }
+    if (e.key === "Enter")  { e.preventDefault(); commitPicker(); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); movePicker(-1); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); movePicker(1); return; }
+    if (/^[1-9]$/.test(e.key)) {
+      e.preventDefault();
+      const i = Number(e.key) - 1;
+      if (i < state.picker.transforms.length) { setPickerIndex(i); commitPicker(); }
+      return;
+    }
+    return;
+  }
+
+  const editing = document.activeElement === $("#searchInput");
+
+  // Esc
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if ($("#searchInput").value) { closeSearch(true); }
+    else if (state.searchOpen) { closeSearch(false); }
+    else hidePanel();
+    return;
+  }
+
+  // 数字键 ⌘1-9 / ⇧⌘1-9
+  if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
+    e.preventDefault();
+    quickPaste(Number(e.key), e.shiftKey);
+    return;
+  }
+
+  // 快捷
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); openSearch(); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); copySelected("original"); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); togglePause(); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "[") { e.preventDefault(); cycleBoard(-1); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "]") { e.preventDefault(); cycleBoard(1); return; }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); promptCreatePinboard(); return; }
+
+  // Return / ⇧Return / ⌘⇧Return
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (e.metaKey && e.shiftKey) openPicker();
+    else if (e.shiftKey) doPaste("plain");
+    else doPaste("original");
+    return;
+  }
+
+  // 方向键
+  if (e.key === "ArrowLeft")  { e.preventDefault(); moveSelection(-1); return; }
+  if (e.key === "ArrowRight") { e.preventDefault(); moveSelection(1); return; }
+  if (!editing && e.key.toLowerCase() === "h") { e.preventDefault(); moveSelection(-1); return; }
+  if (!editing && e.key.toLowerCase() === "l") { e.preventDefault(); moveSelection(1); return; }
+
+  // 在搜索框里时，下面这些不抢
+  if (editing) return;
+
+  // / 进入搜索
+  if (e.key === "/") { e.preventDefault(); openSearch(""); return; }
+
+  // Space 收藏
+  if (e.key === " ") { e.preventDefault(); togglePinned(); return; }
+
+  // Backspace / Delete 删除
+  if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); deleteSelected(); return; }
+
+  // 字母 → 进搜索（带前缀）
+  if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
+    e.preventDefault();
+    openSearch(e.key);
+    return;
+  }
+});
+
+/* ========================== 初始化 ========================== */
+state.selectedId = state.items[0]?.id ?? null;
+render();
+</script>
+</body>
+</html>
